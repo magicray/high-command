@@ -8,7 +8,7 @@ def cmd(ip, port, cmd):
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.connect((ip, port))
 
-    sock.sendall(cmd.encode() + b'\n')
+    sock.sendall(cmd.encode() + b'\n\n')
 
     fd_list = [sock, 0]
     while fd_list and sock:
