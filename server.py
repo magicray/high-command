@@ -1,5 +1,7 @@
-import uuid
-import asyncio
+import os
+import sys
+import runpy
+import socket
 import logging
 import argparse
 import urllib.parse
@@ -7,76 +9,63 @@ import urllib.parse
 from logging import critical as log
 
 
-workers = dict()
+def logfile(logdir, filename):
+    name = logdir + '/' + filename
+    os.dup2(os.open(name, os.O_CREAT | os.O_WRONLY | os.O_APPEND, 0o644), 2)
 
 
-async def server(reader, writer):
-    peer = writer.get_extra_info('peername')
+def server(addr, logdir):
+    line = urllib.parse.unquote(sys.stdin.buffer.readline().decode())
+    sys.argv = line.split()[1:-1]
+    sys.argv[0] = sys.argv[0][1:]
 
-    cmd = await reader.readline()
+    while True:
+        hdr = sys.stdin.buffer.readline().decode().strip()
+        if not hdr:
+            break
+        k, v = hdr.split(':', 1)
+        os.environ[k.strip().upper()] = v.strip()
 
-    # worker
-    if b'\n' == cmd:
-        await reader.readline()  # Discard the next empty line
-        uid = uuid.uuid4().hex
-        workers[uid] = writer
-        log('join%s workers(%d)', peer, len(workers))
-        writer = None
+    log('from%s cmd(%s)', addr, ' '.join(sys.argv))
 
-    # client
-    else:
-        log('join%s cmd(%s)', peer, cmd)
+    logfile(logdir, sys.argv[0])
 
-        if len(workers):
-            uid, w_writer = workers.popitem()
-            workers[uid] = writer
-            writer = w_writer
-
-            http = False
-            f = cmd.decode().split()
-            if f[0].lower() in ('get', 'post'):
-                if f[-1].lower().startswith('http/1.'):
-                    http = True
-
-            if http:
-                workers[uid].write(b'HTTP/1.0 200 OK\n\n')
-                writer.write(urllib.parse.unquote(f[1][1:]).encode() + b'\n')
-            else:
-                workers[uid].write(b'\n\n')
-                writer.write(cmd)
-        else:
-            writer.close()
-            return
-
-    try:
-        while True:
-            buf = await reader.read()
-
-            if writer is None:
-                writer = workers[uid]
-
-            if not buf:
-                break
-
-            writer.write(buf)
-    finally:
-        pass
-
-    writer.write_eof()
-
-    if uid in workers and writer == workers[uid]:
-        workers.pop(uid)
-        log('exit%s workers(%s)', peer, len(workers))
-    else:
-        log('exit%s cmd(%s)', peer, cmd)
+    print('HTTP/1.0 200 OK\n\n')
+    runpy.run_module(sys.argv[0], run_name='__main__')
+    sys.stdout.flush()
 
 
-if __name__ == '__main__':
+def main():
     parser = argparse.ArgumentParser()
+    parser.add_argument('--ip', dest='ip', default='')
     parser.add_argument('--port', dest='port', type=int)
+    parser.add_argument('--logdir', dest='logdir', default='.')
     args = parser.parse_args()
 
     logging.basicConfig(format='%(asctime)s %(process)d : %(message)s')
 
-    asyncio.gather(asyncio.start_server(server, '', args.port))
-    asyncio.get_event_loop().run_forever()
+    if not os.path.isdir(args.logdir):
+        os.mkdir(args.logdir)
+
+    logfile(args.logdir, 'main-server')
+
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.bind((args.ip, args.port))
+    sock.listen()
+
+    while True:
+        conn, addr = sock.accept()
+
+        if 0 == os.fork():
+            break
+
+        conn.close()
+
+    sock.close()
+    os.dup2(conn.fileno(), 0)
+    os.dup2(conn.fileno(), 1)
+    server(addr, args.logdir)
+
+
+if __name__ == '__main__':
+    main()
