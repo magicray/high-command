@@ -43,9 +43,6 @@ def server(addr):
 
 
 def main():
-    # openssl req -x509 -newkey rsa:2048 -keyout ssl.key -nodes
-    #             -subj / -out ssl.cert -sha256 -days 1000
-
     logging.basicConfig(format='%(asctime)s %(process)d : %(message)s')
 
     if args.logdir and not os.path.isdir(args.logdir):
@@ -53,8 +50,14 @@ def main():
 
     logfile(__loader__.name)
 
+    if not os.path.isfile('ssl.key') or not os.path.isfile('ssl.cert'):
+        log('''Please use following command to create a self signed certificate
+               openssl req -x509 -newkey rsa:2048 -keyout ssl.key -nodes
+                           -subj / -out ssl.cert -sha256 -days 1000''')
+        exit()
+
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.bind((args.ip, args.port))
+    sock.bind(('', args.port))
     sock.listen()
 
     while True:
@@ -66,7 +69,7 @@ def main():
         conn.close()
 
     sock.close()
-    conn = ssl.wrap_socket(conn, certfile='ssl.key', server_side=True)
+    conn = ssl.wrap_socket(conn, 'ssl.key', 'ssl.cert', True)
     sys.stdin = conn.makefile('r')
     sys.stdout = conn.makefile('w')
     server(addr)
@@ -88,7 +91,7 @@ def cmd(ip, port, cmd):
 
 if __name__ == '__main__':
     args = argparse.ArgumentParser()
-    args.add_argument('--ip', dest='ip', default='')
+    args.add_argument('--ip', dest='ip')
     args.add_argument('--cmd', dest='cmd')
     args.add_argument('--port', dest='port', type=int)
     args.add_argument('--logdir', dest='logdir', default='')

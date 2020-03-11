@@ -6,7 +6,7 @@ import argparse
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--cmd', dest='cmd', default='ping')
+    parser.add_argument('--cmd', dest='cmd')
     args = parser.parse_args()
 
     if 'ping' == args.cmd:
