@@ -12,7 +12,7 @@ def main():
         print('ok')
 
     if 'hash' == args.cmd:
-        print(hashlib.md5(sys.stdin.read(7).encode()).hexdigest())
+        print(hashlib.md5(sys.stdin.readline().encode()).hexdigest())
 
     if 'echo' == args.cmd:
         for line in sys.stdin:

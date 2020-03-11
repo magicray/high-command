@@ -1,11 +1,13 @@
 import os
 import sys
+import ssl
 import runpy
 import socket
 import logging
 import argparse
 import urllib.parse
 
+from . import connect
 from logging import critical as log
 
 
@@ -18,13 +20,13 @@ def logfile(filename):
 
 
 def server(addr):
-    line = urllib.parse.unquote(sys.stdin.buffer.readline().decode())
+    line = urllib.parse.unquote(sys.stdin.readline())
     sys.argv = line.split()[1:-1]
     sys.argv[0] = sys.argv[0][1:]
 
     os.environ['METHOD'] = line[0].strip().upper()
     while True:
-        hdr = sys.stdin.buffer.readline().decode().strip()
+        hdr = sys.stdin.readline().strip()
         if not hdr:
             break
         k, v = hdr.split(':', 1)
@@ -34,12 +36,16 @@ def server(addr):
 
     logfile(sys.argv[0])
 
-    sys.stdout.write('HTTP/1.0 200 OK\n\n')
+    print('HTTP/1.0 200 OK\n')
+    sys.stdout.flush()
     runpy.run_module(sys.argv[0], run_name='__main__')
     sys.stdout.flush()
 
 
 def main():
+    # openssl req -x509 -newkey rsa:2048 -keyout ssl.key -nodes
+    #             -subj / -out ssl.cert -sha256 -days 1000
+
     logging.basicConfig(format='%(asctime)s %(process)d : %(message)s')
 
     if args.logdir and not os.path.isdir(args.logdir):
@@ -60,16 +66,34 @@ def main():
         conn.close()
 
     sock.close()
-    os.dup2(conn.fileno(), 0)
-    os.dup2(conn.fileno(), 1)
+    conn = ssl.wrap_socket(conn, certfile='ssl.key', server_side=True)
+    sys.stdin = conn.makefile('r')
+    sys.stdout = conn.makefile('w')
     server(addr)
+
+
+def cmd(ip, port, cmd):
+    sock = connect(ip, port, cmd)
+
+    sock.sendall(sys.stdin.read().encode())
+
+    while True:
+        buf = sock.recv(2**16)
+        if not buf:
+            break
+
+        os.write(1, buf)
 
 
 if __name__ == '__main__':
     args = argparse.ArgumentParser()
     args.add_argument('--ip', dest='ip', default='')
+    args.add_argument('--cmd', dest='cmd')
     args.add_argument('--port', dest='port', type=int)
     args.add_argument('--logdir', dest='logdir', default='')
     args = args.parse_args()
 
-    main()
+    if args.cmd:
+        cmd(args.ip, args.port, args.cmd)
+    else:
+        main()
