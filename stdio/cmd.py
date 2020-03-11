@@ -1,4 +1,5 @@
 import sys
+import time
 import hashlib
 import argparse
 
@@ -17,6 +18,8 @@ def main():
     if 'echo' == args.cmd:
         for line in sys.stdin:
             print(line)
+
+    print(time.strftime('%c'))
 
 
 if __name__ == '__main__':
