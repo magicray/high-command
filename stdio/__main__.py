@@ -75,10 +75,11 @@ def main():
 def cmd(ip, port, cmd):
     sock = connect(ip, port, cmd)
 
-    sock.sendall(sys.stdin.read().encode())
+    if not os.isatty(0):
+        sock.sendall(sys.stdin.read().encode())
 
     while True:
-        buf = sock.recv(2**16)
+        buf = sock.recv()
         if not buf:
             break
 
