@@ -50,12 +50,6 @@ def main():
 
     logfile(__loader__.name)
 
-    if not os.path.isfile('ssl.key') or not os.path.isfile('ssl.cert'):
-        log('''Please use following command to create a self signed certificate
-               openssl req -x509 -newkey rsa:2048 -keyout ssl.key -nodes
-                           -subj / -out ssl.cert -sha256 -days 1000''')
-        exit()
-
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.bind(('', args.port))
     sock.listen()
@@ -69,7 +63,7 @@ def main():
         conn.close()
 
     sock.close()
-    conn = ssl.wrap_socket(conn, 'ssl.key', 'ssl.cert', True)
+    conn = ssl.wrap_socket(conn, None, 'ssl.cert', True)
     sys.stdin = conn.makefile('r')
     sys.stdout = conn.makefile('w')
     server(addr)
@@ -90,6 +84,8 @@ def cmd(ip, port, cmd):
 
 
 if __name__ == '__main__':
+    # openssl req -x509 -nodes -subj / -sha256 --keyout ssl.cert >> ssl.cert
+
     args = argparse.ArgumentParser()
     args.add_argument('--ip', dest='ip')
     args.add_argument('--cmd', dest='cmd')
