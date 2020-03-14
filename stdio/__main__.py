@@ -1,9 +1,11 @@
 import os
 import sys
 import ssl
+import time
 import runpy
 import signal
 import socket
+import select
 import logging
 import argparse
 import mimetypes
@@ -14,10 +16,10 @@ from logging import critical as log
 
 
 def logfile(filename):
-    if not args.logdir:
+    if not args.logs:
         return
 
-    name = args.logdir + '/' + filename
+    name = args.logs + '/' + filename
     os.dup2(os.open(name, os.O_CREAT | os.O_WRONLY | os.O_APPEND, 0o644), 2)
 
 
@@ -66,12 +68,36 @@ def server(conn, addr):
         sys.stdout.flush()
 
 
+def jobs():
+    cmd = Cmd('127.0.0.1', args.port, args.jobs)
+    jobs = cmd.stdout.readlines()
+    del(cmd)
+
+    for job in jobs:
+        if 0 == os.fork():
+            cmd = [x.strip() for x in job.split('|')]
+
+            sys.argv = cmd[0].split()
+            logfile(sys.argv[0])
+
+            if len(cmd) > 1 and cmd[1]:
+                sys.stdin = open(os.path.join(os.getcwd(), cmd[1]), 'r')
+            if len(cmd) > 2 and cmd[2]:
+                sys.stdout = open(os.path.join(os.getcwd(), cmd[2]), 'w')
+
+            runpy.run_module(sys.argv[0], run_name='__main__')
+
+            sys.stdout.flush()
+            sys.stdout.close()
+            return
+
+
 def main():
     logging.basicConfig(format='%(asctime)s %(process)d : %(message)s')
     signal.signal(signal.SIGCHLD, signal.SIG_IGN)
 
-    if args.logdir and not os.path.isdir(args.logdir):
-        os.mkdir(args.logdir)
+    if args.logs and not os.path.isdir(args.logs):
+        os.mkdir(args.logs)
 
     logfile(__loader__.name)
 
@@ -79,27 +105,35 @@ def main():
     sock.bind(('', args.port))
     sock.listen()
 
+    next_timestamp = int(time.time() / 60) * 60 + 60
     while True:
-        conn, addr = sock.accept()
+        r, _, _ = select.select([sock], [], [], 1)
 
-        if 0 == os.fork():
-            break
+        if time.time() > next_timestamp:
+            next_timestamp = int(time.time() / 60) * 60 + 60
 
-        conn.close()
+            if 0 == os.fork():
+                return jobs()
 
-    sock.close()
+        if sock in r:
+            conn, addr = sock.accept()
 
-    server(ssl.wrap_socket(conn, None, 'ssl.cert', True), addr)
+            if 0 == os.fork():
+                sock.close()
+                return server(ssl.wrap_socket(conn, None, 'ssl.cert', True),
+                              addr)
+            conn.close()
 
 
 if __name__ == '__main__':
-    # openssl req -x509 -nodes -subj / -sha256 --keyout ssl.cert >> ssl.cert
+    # openssl req -x509 -nodes -subj / -sha256 --keyout ssl.key --out ssl.cert
 
     args = argparse.ArgumentParser()
     args.add_argument('--ip', dest='ip')
     args.add_argument('--cmd', dest='cmd')
+    args.add_argument('--logs', dest='logs')
     args.add_argument('--port', dest='port', type=int)
-    args.add_argument('--logdir', dest='logdir', default='')
+    args.add_argument('--jobs', dest='jobs', default='stdio.tools --cmd jobs')
     args = args.parse_args()
 
     if args.ip and args.port and args.cmd:
