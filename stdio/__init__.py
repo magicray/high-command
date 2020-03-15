@@ -1,5 +1,6 @@
 import ssl
 import socket
+import urllib.request
 
 
 class Cmd():
@@ -20,3 +21,12 @@ class Cmd():
 
     def __del__(self):
         self._sock.close()
+
+
+def fetch(ip, port, filename):
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+
+    url = 'https://{}:{}/{}'.format(ip, port, filename)
+    return urllib.request.urlopen(url, context=ctx).read()

@@ -1,7 +1,6 @@
 import os
 import sys
 import time
-import hashlib
 import argparse
 from logging import critical as log
 
@@ -19,20 +18,14 @@ def main():
     if 'ping' == args.cmd:
         print(time.strftime('%c'))
 
-    if 'hash' == args.cmd:
-        print(hashlib.md5(sys.stdin.readline().encode()).hexdigest())
-
     if 'echo' == args.cmd:
         for line in sys.stdin:
             print(line)
 
-    if 'cleanup' == args.cmd:
-        log('cleaning up....')
+    if 'demo' == args.cmd:
+        log('Demo Job')
         for line in sys.stdin:
             print('{} {}'.format(time.strftime('%c'), line))
-
-    if 'jobs' == args.cmd:
-        print('stdio.tools --cmd cleanup | jobs.in | jobs.out')
 
 
 if __name__ == '__main__':

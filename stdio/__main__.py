@@ -2,6 +2,7 @@ import os
 import sys
 import ssl
 import time
+import json
 import runpy
 import signal
 import socket
@@ -11,16 +12,24 @@ import argparse
 import mimetypes
 import urllib.parse
 
-from . import Cmd
-from logging import critical as log
+from . import Cmd, fetch
 
 
-def logfile(filename):
+logfd = dict()
+
+
+def logger(filename='stdio'):
     if not args.logs:
-        return
+        return logging.critical
 
-    name = args.logs + '/' + filename
-    os.dup2(os.open(name, os.O_CREAT | os.O_WRONLY | os.O_APPEND, 0o644), 2)
+    x = args.logs + '/' + filename
+
+    if x not in logfd:
+        logfd[x] = os.open(x, os.O_CREAT | os.O_WRONLY | os.O_APPEND, 0o644)
+
+    os.dup2(logfd[x], 2)
+
+    return logging.critical
 
 
 def server(conn, addr):
@@ -38,8 +47,6 @@ def server(conn, addr):
             break
         k, v = hdr.split(':', 1)
         os.environ[k.strip().upper()] = v.strip()
-
-    log('from%s cmd(%s)', addr, ' '.join(sys.argv))
 
     print('HTTP/1.0 200 OK')
 
@@ -59,37 +66,38 @@ def server(conn, addr):
                 conn.sendall(buf)
                 length += len(buf)
 
-            log('client%s file(%s) bytes(%d)', addr, sys.argv[0], length)
+            logger()('client%s file(%s) bytes(%d)', addr, sys.argv[0], length)
     else:
         print()
         sys.stdout.flush()
-        logfile(sys.argv[0])
+        logger(sys.argv[0])
         runpy.run_module(sys.argv[0], run_name='__main__')
         sys.stdout.flush()
 
+        logger()('client%s cmd(%s)', addr, ' '.join(sys.argv))
+
 
 def jobs():
-    cmd = Cmd('127.0.0.1', args.port, args.jobs)
-    jobs = cmd.stdout.readlines()
-    del(cmd)
+    for job in json.load(open(args.jobs)):
+        if os.fork():
+            continue
 
-    for job in jobs:
-        if 0 == os.fork():
-            cmd = [x.strip() for x in job.split('|')]
+        sys.argv = job['cmd'].split()
 
-            sys.argv = cmd[0].split()
-            logfile(sys.argv[0])
+        logger(sys.argv[0])
 
-            if len(cmd) > 1 and cmd[1]:
-                sys.stdin = open(os.path.join(os.getcwd(), cmd[1]), 'r')
-            if len(cmd) > 2 and cmd[2]:
-                sys.stdout = open(os.path.join(os.getcwd(), cmd[2]), 'w')
+        if 'stdin' in job:
+            sys.stdin = open(os.path.join(os.getcwd(), job['stdin']), 'r')
+        if 'stdout' in job:
+            sys.stdout = open(os.path.join(os.getcwd(), job['stdout']), 'w')
 
-            runpy.run_module(sys.argv[0], run_name='__main__')
+        runpy.run_module(sys.argv[0], run_name='__main__')
 
-            sys.stdout.flush()
-            sys.stdout.close()
-            return
+        sys.stdout.flush()
+        sys.stdout.close()
+
+        return logger()('cmd(%s) stdin(%s) stdout(%s)',
+                        job['cmd'], job['stdin'], job['stdout'])
 
 
 def main():
@@ -99,30 +107,35 @@ def main():
     if args.logs and not os.path.isdir(args.logs):
         os.mkdir(args.logs)
 
-    logfile(__loader__.name)
-
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.bind(('', args.port))
     sock.listen()
 
-    next_timestamp = int(time.time() / 60) * 60 + 60
+    next_timestamp = 0
     while True:
         r, _, _ = select.select([sock], [], [], 1)
 
         if time.time() > next_timestamp:
             next_timestamp = int(time.time() / 60) * 60 + 60
 
-            if 0 == os.fork():
+            if args.jobs and 0 == os.fork():
                 return jobs()
 
         if sock in r:
             conn, addr = sock.accept()
 
-            if 0 == os.fork():
-                sock.close()
-                return server(ssl.wrap_socket(conn, None, 'ssl.cert', True),
-                              addr)
-            conn.close()
+            if all([not addr[0].startswith(ip) for ip in args.allowed_ip]):
+                logger()('rejected%s', addr)
+                conn.close()
+                continue
+
+            if os.fork():
+                conn.close()
+                continue
+
+            sock.close()
+            sock = ssl.wrap_socket(conn, 'ssl.key', 'ssl.cert', True)
+            return server(sock, addr)
 
 
 if __name__ == '__main__':
@@ -130,13 +143,21 @@ if __name__ == '__main__':
 
     args = argparse.ArgumentParser()
     args.add_argument('--ip', dest='ip')
-    args.add_argument('--cmd', dest='cmd')
-    args.add_argument('--logs', dest='logs')
     args.add_argument('--port', dest='port', type=int)
-    args.add_argument('--jobs', dest='jobs', default='stdio.tools --cmd jobs')
-    args = args.parse_args()
 
-    if args.ip and args.port and args.cmd:
+    args.add_argument('--jobs', dest='jobs')
+    args.add_argument('--logs', dest='logs')
+    args.add_argument('--allowed_ip', dest='allowed_ip', default='')
+
+    args.add_argument('--cmd', dest='cmd')
+    args.add_argument('--fetch', dest='fetch')
+
+    args = args.parse_args()
+    logger()
+
+    args.allowed_ip = set([ip.strip() for ip in args.allowed_ip.split(',')])
+
+    if args.cmd:
         cmd = Cmd(args.ip, args.port, args.cmd)
 
         if not os.isatty(0):
@@ -144,6 +165,8 @@ if __name__ == '__main__':
 
         while os.write(1, cmd.stdout.read().encode()):
             pass
+    elif args.fetch:
+        os.write(1, fetch(args.ip, args.port, args.fetch))
     else:
         mime = mimetypes.MimeTypes()
         main()
