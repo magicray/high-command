@@ -4,7 +4,7 @@ from distutils.core import setup
 setup(
   name = 'stdio',
   packages = ['stdio'],
-  version = '0.6',
+  version = '0.7',
   description = 'A tcp server to invoke python command line utilities',
   long_description = 'A tcp server to invoke python CLI - compatible with http<br>Go to https://github.com/magicray/main-server for details',
   author = 'Bhupendra Singh',
