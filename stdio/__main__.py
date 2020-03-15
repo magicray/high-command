@@ -9,6 +9,7 @@ import socket
 import select
 import logging
 import argparse
+import resource
 import mimetypes
 import urllib.parse
 
@@ -18,7 +19,7 @@ from . import Cmd, fetch
 logfd = dict()
 
 
-def logger(filename='stdio'):
+def log(filename='stdio'):
     if not args.logs:
         return logging.critical
 
@@ -32,7 +33,7 @@ def logger(filename='stdio'):
     return logging.critical
 
 
-def server(conn, addr):
+def server(conn, addr, ts):
     sys.stdin = conn.makefile('r')
     sys.stdout = conn.makefile('w')
 
@@ -66,15 +67,19 @@ def server(conn, addr):
                 conn.sendall(buf)
                 length += len(buf)
 
-            logger()('client%s file(%s) bytes(%d)', addr, sys.argv[0], length)
+            return log()('client%s file(%s) bytes(%d) msec(%d) kb(%d)',
+                         addr, sys.argv[0], length, (time.time()-ts)*1000,
+                         resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
     else:
         print()
         sys.stdout.flush()
-        logger(sys.argv[0])
+        log(sys.argv[0])
         runpy.run_module(sys.argv[0], run_name='__main__')
         sys.stdout.flush()
 
-        logger()('client%s cmd(%s)', addr, ' '.join(sys.argv))
+        return log()('client%s cmd(%s) msec(%d) kb(%d)',
+                     addr, ' '.join(sys.argv), (time.time()-ts)*1000,
+                     resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
 
 
 def jobs():
@@ -82,9 +87,11 @@ def jobs():
         if os.fork():
             continue
 
+        ts = time.time()
+
         sys.argv = job['cmd'].split()
 
-        logger(sys.argv[0])
+        log(sys.argv[0])
 
         if 'stdin' in job:
             sys.stdin = open(os.path.join(os.getcwd(), job['stdin']), 'r')
@@ -96,8 +103,10 @@ def jobs():
         sys.stdout.flush()
         sys.stdout.close()
 
-        return logger()('cmd(%s) stdin(%s) stdout(%s)',
-                        job['cmd'], job['stdin'], job['stdout'])
+        return log()('cmd(%s) stdin(%s) stdout(%s) msec(%d) kb(%d)',
+                     job['cmd'], job['stdin'], job['stdout'],
+                     (time.time()-ts)*1000,
+                     resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
 
 
 def main():
@@ -123,9 +132,10 @@ def main():
 
         if sock in r:
             conn, addr = sock.accept()
+            ts = time.time()
 
             if all([not addr[0].startswith(ip) for ip in args.allowed_ip]):
-                logger()('rejected%s', addr)
+                log()('rejected%s', addr)
                 conn.close()
                 continue
 
@@ -135,7 +145,7 @@ def main():
 
             sock.close()
             sock = ssl.wrap_socket(conn, 'ssl.key', 'ssl.cert', True)
-            return server(sock, addr)
+            return server(sock, addr, ts)
 
 
 if __name__ == '__main__':
@@ -153,7 +163,7 @@ if __name__ == '__main__':
     args.add_argument('--fetch', dest='fetch')
 
     args = args.parse_args()
-    logger()
+    log()
 
     args.allowed_ip = set([ip.strip() for ip in args.allowed_ip.split(',')])
 
