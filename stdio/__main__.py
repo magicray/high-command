@@ -49,29 +49,38 @@ def server(conn, addr, ts):
         k, v = hdr.split(':', 1)
         os.environ[k.strip().upper()] = v.strip()
 
-    print('HTTP/1.0 200 OK')
-
     if 1 == len(sys.argv) and '/' in sys.argv[0]:
-        mime_type = mime.guess_type(sys.argv[0])[0]
-        mime_type = mime_type if mime_type else 'application/octet-stream'
-        print('Content-Type: {}\n'.format(mime_type))
-        sys.stdout.flush()
+        cwd = os.path.realpath(os.getcwd())
+        path = os.path.realpath(sys.argv[0])
 
-        with open(os.path.join(os.getcwd(), sys.argv[0]), 'rb') as fd:
+        if not path.startswith(cwd + '/') or os.path.dirname(path) == cwd:
+            length = -1
+            print('HTTP/1.0 403 Forbidden\n')
+        elif not os.path.isfile(path):
             length = 0
-            while True:
-                buf = fd.read(2**20)
-                if not buf:
-                    break
+            print('HTTP/1.0 404 Not Found\n')
+        else:
+            mime_type = mime.guess_type(path)[0]
+            mime_type = mime_type if mime_type else 'application/octet-stream'
 
-                conn.sendall(buf)
-                length += len(buf)
+            print('HTTP/1.0 200 OK\nContent-Type: {}\n'.format(mime_type))
+            sys.stdout.flush()
 
-            return log()('client%s file(%s) bytes(%d) msec(%d) kb(%d)',
-                         addr, sys.argv[0], length, (time.time()-ts)*1000,
-                         resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
+            with open(path, 'rb') as fd:
+                length = 0
+                while True:
+                    buf = fd.read(2**20)
+                    if not buf:
+                        break
+
+                    conn.sendall(buf)
+                    length += len(buf)
+
+        return log()('client%s file(%s) bytes(%d) msec(%d) kb(%d)',
+                     addr, path, length, (time.time()-ts)*1000,
+                     resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
     else:
-        print()
+        print('HTTP/1.0 200 OK\n')
         sys.stdout.flush()
         log(sys.argv[0])
         runpy.run_module(sys.argv[0], run_name='__main__')
@@ -104,7 +113,7 @@ def jobs():
         sys.stdout.close()
 
         return log()('cmd(%s) stdin(%s) stdout(%s) msec(%d) kb(%d)',
-                     job['cmd'], job['stdin'], job['stdout'],
+                     job['cmd'], job.get('stdin', ''), job.get('stdout', ''),
                      (time.time()-ts)*1000,
                      resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
 
