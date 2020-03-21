@@ -86,7 +86,7 @@ def server(conn, addr, ts):
         runpy.run_module(sys.argv[0], run_name='__main__')
         sys.stdout.flush()
 
-        return log()('client%s cmd(%s) msec(%d) kb(%d)',
+        return log()('client%s cmd(%s) status(200 OK) msec(%d) kb(%d)',
                      addr, ' '.join(sys.argv), (time.time()-ts)*1000,
                      resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
 
@@ -128,6 +128,7 @@ def main():
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.bind(('', args.port))
     sock.listen()
+    log()('listening on port(%d)', args.port)
 
     next_timestamp = 0
     while True:
