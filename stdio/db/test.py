@@ -1,4 +1,5 @@
 import time
+import json
 import random
 import argparse
 
@@ -14,7 +15,11 @@ def main():
         cmd = Cmd(args.ip, args.port, cmd)
 
         for j in range(10):
-            cmd.stdin.write('{} {}\n'.format(random.choice(keys), time.time()))
+            cmd.stdin.write(json.dumps(dict(
+                key=random.choice(keys),
+                value=str(time.time()))))
+            cmd.stdin.write('\n')
+
         cmd.stdin.write('\n')
         cmd.stdin.flush()
 

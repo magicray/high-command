@@ -1,5 +1,6 @@
 import sys
 import time
+import json
 import argparse
 
 from logging import critical as log
@@ -29,17 +30,16 @@ def read():
     byte_count = 0
     record_count = 0
     for r in rows:
-        rec = '{} {} {} {} {}'.format(r[0], r[1], r[2], r[3], r[4])
+        rec = json.dumps([r[0], r[1], r[2], r[3], r[4]])
 
         byte_count += len(rec)
         record_count += 1
 
         print(rec)
 
-    print()
     sys.stdout.flush()
 
-    log('record_count(%d) bytes(%d)', record_count, byte_count)
+    log('read(%s) record(%d) bytes(%d)', args.db, record_count, byte_count)
 
 
 def sync():
@@ -51,23 +51,28 @@ def sync():
     cmd = Cmd(args.ip, args.port,
               'stdio.db --cmd read --db {} --seq {}'.format(args.src, seq+1))
 
+    byte_count = 0
+    record_count = 0
     for line in cmd.stdout.readlines():
-        line = line.split(maxsplit=4)
-
-        if 5 != len(line):
+        try:
+            seq, term, ts, key, value = json.loads(line)
+        except Exception:
             break
 
-        seq, term, ts, key, value = line
+        byte_count += len(line)
+        record_count += 1
 
         sql('delete from kv where key=?', key)
-        sql('insert into kv values(?, ?, ?, ?, ?)',
-            int(seq), int(term), int(ts), key.strip(), value.strip())
+        sql('insert into kv values(?, ?, ?, ?, ?)', seq, term, ts, key, value)
 
     seq = sql('select max(seq) from kv').fetchone()[0]
     sql.commit()
 
     print(seq)
     sys.stdout.flush()
+
+    log('sync(%s) src(%s) record(%d) bytes(%d)',
+        args.db, args.src, record_count, byte_count)
 
 
 def put():
@@ -78,31 +83,29 @@ def put():
 
     records = list()
     while True:
-        line = sys.stdin.readline()
-        rec = [l.strip() for l in line.split(maxsplit=1)]
-
-        if not rec:
+        try:
+            records.append(json.loads(sys.stdin.readline()))
+        except Exception:
             break
-
-        records.append(rec)
 
     ts = int(time.strftime('%Y%m%d%H%M%S'))
     row = sql('select seq, term from kv order by seq desc limit 1').fetchone()
     seq, term = row if row else (0, 0)
 
     row_count = 0
-    for key, value in records:
+    for rec in records:
         row_count += 1
 
-        sql('delete from kv where key=?', key)
-        sql('insert into kv values(null, ?, ?, ?, ?)', term, ts, key, value)
+        sql('delete from kv where key=?', rec['key'])
+        sql('insert into kv values(null, ?, ?, ?, ?)',
+            term, ts, rec['key'], rec['value'])
 
     row = sql('select seq, term from kv order by seq desc limit 1').fetchone()
     final_seq = row[0]
     assert(seq+row_count == final_seq and term == row[1])
     sql.commit()
 
-    log('start_seq(%d) final_seq(%d) row_count(%d)', seq, final_seq, row_count)
+    log('put(%s) begin(%d) end(%d) rec(%d)', db, seq, final_seq, row_count)
 
     success_count = 0
     replica_count = len(dblist)
