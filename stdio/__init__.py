@@ -1,5 +1,6 @@
 import ssl
 import socket
+import sqlite3
 import urllib.request
 
 
@@ -30,3 +31,29 @@ def fetch(ip, port, filename):
 
     url = 'https://{}:{}/{}'.format(ip, port, filename)
     return urllib.request.urlopen(url, context=ctx).read()
+
+
+class SQLite():
+    def __init__(self, name):
+        self.conn = None
+        self.path = name + '.sqlite3'
+
+    def __call__(self, query, *params):
+        if self.conn is None:
+            self.conn = sqlite3.connect(self.path)
+
+        return self.conn.execute(query, params)
+
+    def commit(self):
+        if self.conn:
+            self.conn.commit()
+            self.rollback()
+
+    def rollback(self):
+        if self.conn:
+            self.conn.rollback()
+            self.conn.close()
+            self.conn = None
+
+    def __del__(self):
+        self.rollback()
